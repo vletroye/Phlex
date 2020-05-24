@@ -115,7 +115,7 @@ function makeSettingsBody($defaults) {
 			                    <div id='updateContainer'>
 			                    </div>
 			                </div>
-			                <div class='text-center autoUpdateGroup'>
+			                <div class='text-center'>
 			                    <div class='form-group btn-group'>
 			                        <button id='checkUpdates' value='checkUpdates' class='btn btn-raised btn-info btn-100' type='button'>" . $lang["uiSettingRefreshUpdates"] . "</button>
 			                        <button id='installUpdates' value='installUpdates' class='btn btn-raised btn-warning btn-100' type='button'>" . $lang["uiSettingInstallUpdates"] . "</button>
@@ -128,6 +128,9 @@ function makeSettingsBody($defaults) {
 	$gitDiv = $useGit ? $gitDiv : "";
 
 	$apiToken = $_SESSION['apiToken'];
+
+	$rev = checkRevision(true);
+	$revString = $rev ? "Revision: $rev" : "";
 
 	$string = "	<div class='modal fade' id='settingsModal'>
 					<div class='modal-dialog' role='document'>
@@ -206,7 +209,7 @@ function makeSettingsBody($defaults) {
 					                            </div>
 					                            <div class='togglebutton".$hidden."'>
 					                                <label for='cleanLogs' class='appLabel checkLabel'>" . $lang["uiSettingObscureLogs"] . "
-					                                    <input id='cleanLogs' type='checkbox' class='appInput appToggle' " . ($_SESSION['cleanLogs'] ? 'checked' : '') . "/>
+					                                    <input id='cleanLogs' type='checkbox' class='appInput' " . ($_SESSION['cleanLogs'] ? 'checked' : '') . "/>
 					                                </label>
 					                            </div>
 					                            <div class='togglebutton'>
@@ -243,9 +246,23 @@ function makeSettingsBody($defaults) {
 					                    <div class='appContainer card'>
 				                            <div class='card-body'>
 				                                <h4 class='cardHeader'>Notifications</h4>
+				                                <div class='form-group'>
+				                                    <label class='appLabel' for='broadcastList'>" . $lang["uiSettingBroadcastDevice"] . "</label>
+				                                    <select class='form-control custom-select deviceList' id='broadcastList' title='".$lang['uiSettingBroadcastDeviceHint']."'>				                                    
+				                                    </select>
+			                                    </div>
+			                                    <div class='form-group center-group'>
+        											<label for='appt-time'>Start:</label>
+                                                    <input type='time' id='quietStart' class='form-control form-control-sm appInput' min='0:00' max='23:59'/>
+                                                    <label for='appt-time'>Stop:</label>
+                                                    <input type='time' id='quietStop' class='form-control form-control-sm appInput' min='0:00' max='23:59'/>
+                                                </div>
 					                            <div class='fetchNotify'>
-					                                <button id='copyCouch' value='urlCouchPotato' class='hookLnk btn btn-raised btn-warn btn-100' title='Copy WebHook Notification URL'>
+					                                <button id='copyBroadcast' class='hookLnk btn btn-raised btn-warn btn-100' title='Copy WebHook Notification URL'>
 			                                            <i class='material-icons'>assignment</i>
+		                                            </button>
+		                                            <button id='testBroadcast' value='broadcast' class='testInput btn btn-info btn-raised btn-100' title='Test WebHook Notification'>
+			                                            <i class='material-icons'>send</i>
 		                                            </button>
 		                                        </div>
 											</div>
@@ -461,8 +478,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='couchList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control profileList' id='couchList'>
+				                                    <label class='appLabel' for='couchProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='couchProfile'>
 														" . fetchList('couch') . "
 				                                    </select>
 				                                </div>
@@ -495,8 +512,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='radarrList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control appInput profileList' id='radarrList'>
+				                                    <label class='appLabel' for='radarrProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='radarrProfile'>
 				                                        " . fetchList('radarr') . "
 				                                    </select>
 				                                </div>
@@ -529,8 +546,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='watcherList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control appInput profileList' id='watcherList'>
+				                                    <label class='appLabel' for='watcherProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='watcherProfile'>
 				                                        " . fetchList('watcher') . "
 				                                    </select>
 				                                </div>
@@ -596,8 +613,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='sickList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control appInput profileList' id='sickList'>
+				                                    <label class='appLabel' for='sickProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='sickProfile'>
 				                                        " . fetchList('sick') . "
 				                                    </select>
 				                                </div>
@@ -630,8 +647,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='sonarrList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control profileList' id='sonarrList'>
+				                                    <label class='appLabel' for='sonarrProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='sonarrProfile'>
 				                                        " . fetchList('sonarr') . "
 				                                    </select>
 				                                </div>
@@ -696,8 +713,8 @@ function makeSettingsBody($defaults) {
 				                                    </label>
 				                                </div>
 				                                <div class='form-group'>
-				                                    <label class='appLabel' for='lidarrList'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
-				                                    <select class='form-control profileList' id='lidarrList'>
+				                                    <label class='appLabel' for='lidarrProfile'>" . $lang["uiSettingFetcherQualityProfile"] . ":</label>
+				                                    <select class='form-control profileList' id='lidarrProfile'>
 				                                        " . fetchList('lidarr') . "
 				                                    </select>
 				                                </div>
@@ -808,18 +825,15 @@ function makeSettingsBody($defaults) {
 			                <div class='fade1 ccBackground'>
 			                    <div class='ccTextDiv'>
 			                        <span class='spacer'></span>
-			                        <span class='tempDiv meta'></span>
+			                        <span class='tempDiv meta'></span><br>
 			                        <div class='weatherIcon'></div>
 			                        <div class='timeDiv meta'></div>
-			                        <div id='metadata-line-1' class='meta'></div>
-			                        <div id='metadata-line-2' class='meta'></div>
-			                        <div id='metadata-line-3' class='meta'></div>
+			                        <div id='revision' class='meta'>".$revString."</div>
 			                    </div>
 			                </div>
 			            </div>
 			        </div>
-			    </div>
-				";
+			    </div>";
 
 	return $string;
 }

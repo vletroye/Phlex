@@ -19,7 +19,7 @@ class PHPTail {
      */
     private $maxSizeToLoad;
 	/**
-	 * This variable holds a token used for authentication with Phlex.
+	 * This variable holds a token used for authentication with Flex TV.
 	 * @var string
 	 */
 	private $apiToken;
@@ -35,7 +35,7 @@ class PHPTail {
      * @param integer $defaultUpdateTime The time between AJAX requests to the server.
      * @param integer $maxSizeToLoad This variable holds the maximum amount of bytes this application can load into memory (in bytes). Default is 2 Megabyte = 2097152 byte
      */
-    public function __construct($log, $defaultUpdateTime = 1000, $maxSizeToLoad = 2097152,$token,$noHeader=false) {
+    public function __construct($log, $defaultUpdateTime = 1000, $maxSizeToLoad = 102097152,$token,$noHeader=false) {
         $this->log = is_array($log) ? $log : array($log);
         $this->updateTime = $defaultUpdateTime;
         $this->maxSizeToLoad = $maxSizeToLoad;
@@ -190,7 +190,7 @@ class PHPTail {
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Phlex Log Viewer</title>
+<title>Flex TV Log Viewer</title>
 
 <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
 <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">
@@ -215,6 +215,19 @@ class PHPTail {
 	right: 15px;
 	position: absolute;
 }
+
+.navbar-default .navbar-brand {
+    color: #cecece !important;
+}
+.navbar-brand, .navbar-nav>li>a {
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) !important;
+}
+.navbar-default {
+    background-image: -webkit-linear-gradient(top,#545454 0,#000000 100%)!important;
+    background-image: -o-linear-gradient(top,#545454 0,#000000 100%)!important;
+    background-image: -webkit-gradient(linear,left top,left bottom,from(#545454),to(#000000))!important;
+    background-image: linear-gradient(to bottom,#545454 0,#000000 100%)!important;
+}
 .float {
     background: white;
     border-bottom: 1px solid black;
@@ -227,36 +240,39 @@ class PHPTail {
 .jsonParse {
 	border: none;
 	background: transparent;
-	color:blue;
+	color: #3787ff;
 	display: inline-block;
 }
 .contents {
     margin-top: 30px;
 }
 .WARN {
-	color:black;
-	background-color:yellow!important;
+    color: #cecece;
+	background-color: #ca9000 !important;
 }
+
 .DEBUG {
-	color: #007900;
+	color: #8dc3ff;
 }
 
 .ALERT {
-    color: #ffffff;
-    background-color: black !important;
+    color: #000000;
+    background-color: #ffffff !important;
 }
 
 .ERROR {
-	color:red;
+	background-color: #ab0006 !important;
+    color: #cecece;
 }
 .INFO {
-	color:blue;
+	background-color: #00229f !important;
+    color: #cecece;
 }
 .grey {
-	background-color: rgb(223, 223, 223);
+	background-color: rgb(87, 87, 87);
 }
 .white {
-	background-color:white;
+	background-color: #000000;
 }
 .grey, .white {
 	width: 100%;

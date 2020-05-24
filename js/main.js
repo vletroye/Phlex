@@ -1,17 +1,16 @@
 var action = "play";
-var apiToken, appName, bgs, bgWrap, cv, token, newToken, deviceID, resultDuration, logLevel, lastLog, itemJSON,
-	messageArray, publicIP, weatherClass, city, state, updateAvailable,
-	weatherHtml, scrollTimer, direction, progressSlider, volumeSlider;
+var apiToken, appName, bgs, bgWrap, cv, dvr, token, newToken, deviceID, resultDuration, logLevel, itemJSON,
+	messageArray, publicIP, weatherClass, city, state, updateAvailable, scrollTimer, direction, progressSlider,
+	volumeSlider;
 
 var cleanLogs=true, couchEnabled=false, lidarrEnabled=false, ombiEnabled=false, sickEnabled=false, sonarrEnabled=false, radarrEnabled=false,
 	headphonesEnabled=false, watcherEnabled=false, dvrEnabled=false, hook=false, hookPlay=false, polling=false, pollcount=false,
 	hookPause=false, hookStop=false, hookCustom=false, hookFetch=false, hookSplit = false, autoUpdate = false, masterUser = false,
-	noNewUsers=false, notifyUpdate=false, waiting=false;
+	noNewUsers=false, notifyUpdate=false, waiting=false, broadcastDevice="all";
 
 var forceUpdate = true;
 
 var scrolling = false;
-var condition = null;
 var lastUpdate = [];
 var devices = "foo";
 var staticCount = 0;
@@ -46,7 +45,7 @@ $(function () {
 
 
 // Self-explanatory
-$(window).resize(function () {
+$(window).on("resize",function () {
 	scaleElements();
 });
 
@@ -165,6 +164,7 @@ function buildUiDeferred() {
 
 	setListeners();
 	checkUpdate();
+	fetchWeather();
 
 	$(".remove").remove();
 
@@ -178,7 +178,7 @@ function buildUiDeferred() {
 	}, 1000 * 60);
 
 	setInterval(function () {
-		setWeather();
+		fetchWeather();
 		checkUpdate();
 	}, 10 * 1000 * 60);
 
@@ -191,19 +191,41 @@ function buildUiDeferred() {
 function deviceHtml(type, deviceData) {
 	var output = "";
 	$.each(deviceData, function (key, device) {
-		var string = "";
-		var id = device.Id;
-		var name = device.Name;
-		var	selected = ((device.Selected) ? ((type === 'Client') ? " dd-selected" : " selected") : "");
+		var skip = false;
+	    if (device.hasOwnProperty('Id') && device.hasOwnProperty('Name') && device.hasOwnProperty('Selected')) {
+            var string = "";
+            var id = device["Id"];
+            var name = device["Name"];
+            var friendlyName = device["FriendlyName"];
+            if (type === 'Broadcast') {
+            	if (id === broadcastDevice) device["Selected"] = true;
+			}
+            var selected = ((device["Selected"]) ? ((type === 'Client') ? " dd-selected" : " selected") : "");
 
-		if (type === 'Client') {
-			string = "<a class='dropdown-item client-item" + selected + "' data-type='Client' data-id='" + id + "'>" + name + "</a>";
-		} else {
-			string = "<option data-type='" + type + "' value='" + id + "'" + selected + ">" + name + "</option>";
-		}
-		output += string;
+            if (type === 'Client') {
+                string = "<a class='dropdown-item client-item" + selected + "' data-type='Client' data-id='" + id + "'>" + friendlyName + "</a>";
+            } else {
+                string = "<option data-type='" + type + "' value='" + id + "'" + selected + ">" + name + "</option>";
+            }
+            if (device.hasOwnProperty('Product')) {
+            	console.log("Device type present.");
+            	if (device["Product"] !== 'Cast' && type==="Broadcast") {
+            		console.log("Skip this baby.");
+            		skip = true;
+				}
+			}
+            if (!skip) output += string;
+        }
 	});
-	if (type === 'Client') output += '<a class="dropdown-item client-item" data-id="rescan"><b>rescan devices</b></a>';
+    if (type === 'Broadcast') {
+    	console.log("Generating broadcast device list here...");
+    	var tmp = output;
+    	var selected = (broadcastDevice === 'all') ? " selected" : "";
+    	output = "<option data-type='Broadcast' value='all'" + selected + ">ALL DEVICES</option>";
+        output += tmp;
+    } else {
+        if (type === 'Client') output += '<a class="dropdown-item client-item" data-id="rescan"><b>rescan devices</b></a>';
+    }
 	return output;
 }
 
@@ -212,17 +234,21 @@ function updateDevices(newDevices) {
 	var newString = JSON.stringify(newDevices);
 	if (newString !== devices) {
 		console.log("Device array changed, updating: ", newDevices);
-		$('#clientWrapper').html(deviceHtml('Client', newDevices.Client));
-		$('#serverList').html(deviceHtml('Server', newDevices.Server));
-		$('#parentList').html(deviceHtml('Parent', newDevices.Server));
-		if (newDevices.Dvr.length === 0) $('.dvrGroup').hide(); else ($('.dvrGroup').show());
-		$('#dvrList').html(deviceHtml('Dvr', newDevices.Dvr));
-		$('.ddLabel').html($('.dd-selected').text());
+		if (newDevices.hasOwnProperty("Client")) {
+			$('#clientWrapper').html(deviceHtml('Client', newDevices["Client"]));
+            $('#broadcastList').html(deviceHtml('Broadcast', newDevices["Client"]));
+        }
+        if (newDevices.hasOwnProperty("Server")) $('#serverList').html(deviceHtml('Server', newDevices["Server"]));
+        if (newDevices.hasOwnProperty("Dvr")) {
+            if (newDevices["Dvr"].length === 0) $('.dvrGroup').hide(); else ($('.dvrGroup').show());
+            $('#dvrList').html(deviceHtml('Dvr', newDevices.Dvr));
+            $('.ddLabel').html($('.dd-selected').text());
+        }
 		devices = JSON.stringify(newDevices);
 	}
 }
 
-function updateDevice(type, id, token) {
+function updateDevice(type, id) {
 	var noSocket = true;
 	if (noSocket) {
 		apiToken = $('#apiTokenData').data('token');
@@ -298,7 +324,7 @@ function updateStatus() {
                     parseServerData(data);
                 }
                 polling = false;
-            }, dataType = "json");
+            }, "json");
         }
 	} else {
 		pollcount++;
@@ -321,51 +347,57 @@ function parseServerData(data) {
         delete data.userData;
     }
 
+    if ($('#autoUpdate').is(':checked')) {
+        $('#installUpdates').hide();
+    } else {
+        $('#installUpdates').show();
+    }
+
     if (force) $('.queryBtnGrp').removeClass('show');
 
     for (var propertyName in data) {
-        if (propertyName !== 'ui' && propertyName !== 'playerStatus') {
-            console.log("Received updated " + propertyName + " data:", data[propertyName]);
-        }
 
-        switch (propertyName) {
-            case "dologout":
-                if (data.dologout === true || data.dologout === "true") {
-                    document.getElementById('logout').click();
-                }
-                break;
-            case "commands":
-                updateCommands(data.commands, !force);
-                break;
-            case "messages":
-                messages = data.messages;
-                for (var i = 0, l = messages.length; i < l; i++) {
-                    var msg = messages[i];
-                    showMessage(msg.title,msg.message,msg.url);
-                }
-                break;
-            case "updates":
-                $('#updateContainer').html(data.updates);
-                break;
-            case "devices":
-                updateDevices(data.devices);
-                break;
-            case "playerStatus":
-                updatePlayerStatus(data.playerStatus);
-                break;
-            case "ui":
-            case "userdata":
-                break;
-            default:
-                console.log("Unknown value: " + propertyName);
+        if (data.hasOwnProperty(propertyName)) {
+            if (propertyName !== 'ui' && propertyName !== 'playerStatus') {
+                console.log("Received updated " + propertyName + " data:", data[propertyName]);
+            }
+            var val = data[propertyName];
+            switch (propertyName) {
+                case "dologout":
+                    if (val === true || val === "true") document.getElementById('logout').click();
+                    break;
+                case "commands":
+                    updateCommands(val, !force);
+                    break;
+                case "messages":
+                    for (var i = 0, l = val.length; i < l; i++) {
+                        var msg = val[i];
+                        showMessage(msg.title,msg.message,msg.url);
+                    }
+                    break;
+                case "updates":
+                    $('#updateContainer').html(val);
+                    break;
+                case "devices":
+                    updateDevices(val);
+                    break;
+                case "playerStatus":
+                    updatePlayerStatus(val);
+                    break;
+                case "ui":
+                case "userdata":
+                    break;
+                default:
+                    console.log("Unknown value: " + propertyName);
+            }
         }
     }
 }
 
 function setUiVariables(data) {
+	console.log("Setting UI Variables: ",data);
 	for (var propertyName in data) {
-		switch (propertyName) {
-
+		if (data.hasOwnProperty(propertyName)) switch (propertyName) {
 			case 'sonarrEnabled':
 			case 'sickEnabled':
 			case 'couchEnabled':
@@ -387,7 +419,7 @@ function setUiVariables(data) {
 			case 'cleanLogs':
 			case 'autoUpdate':
 			case 'notifyUpdate':
-				console.log("Trying to parse " + propertyName);
+			case 'broadcastDevice':
 				var value = data[propertyName];
                 try {
                     value = JSON.parse(value);
@@ -406,7 +438,11 @@ function setUiVariables(data) {
 					window[propertyName] = value;
 				}
 				break;
-
+			case 'quietStart':
+			case 'quietStop':
+                value = data[propertyName];
+				$('#'+ propertyName).val(value);
+				break;
 			case 'couchList':
 			case 'sonarrList':
 			case 'radarrList':
@@ -447,10 +483,10 @@ function toggleGroups() {
 		if (vars.hasOwnProperty(key)) {
 			var value = vars[key];
 			var element = $('#'+key);
-			var group = (key === 'hookSplit') ? $('.'+key+'Group') : group = $('#'+key+'Group');
+			var group = (key === 'hookSplit' || key === 'autoUpdate') ? $('.'+key+'Group') : $('#'+key+'Group');
 			group = (value === 'masterUser') ?  $('.noNewUsersGroup') : group;
 
-			if (element.prop('checked') != value) {
+			if (element.prop('checked') !== value) {
 				element.prop('checked', value);
 			}
             if (key === 'autoUpdate') value = !value;
@@ -480,44 +516,44 @@ function updatePlayerStatus(data) {
 				playBtn.show();
 				break;
 		}
-		var mr = data.mediaResult;
+		var mr = data["mediaResult"];
 		if (hasContent(mr)) {
-			var resultTitle = mr.title;
-			var resultType = mr.type;
-			var thumbPath = mr.thumb;
-			var artPath = mr.art;
-			var resultSummary = mr.summary;
-			var tagline = mr.tagline;
-
+			var resultTitle = mr["title"];
+			var resultType = mr["type"];
+			var thumbPath = mr["thumb"];
+			var artPath = mr["art"];
+			var resultSummary = mr["summary"];
+			var tagline = mr["tagline"];
+			var vs = $('#volumeSlider');
 			progressSlider = $('#progressSlider').bootstrapSlider();
-			volumeSlider = $('#volumeSlider').bootstrapSlider({
+			volumeSlider = vs.bootstrapSlider({
 				reversed : true
 			});
 
-			$('#volumeSlider').change(function() {
+			vs.on("change", function() {
 				apiToken = $('#apiTokenData').data('token');
 				var volume = $(this).val();
 				var url = 'api.php?say&command=set+the+volume+to+' + volume + "+percent&apiToken=" + apiToken;
 				$.get(url);
 			});
 
-			progressSlider.fadeOut;
-			volumeSlider.fadeOut;
+			progressSlider.fadeOut();
+			volumeSlider.fadeOut();
 
 			TitleString = resultTitle;
 			if (resultType === "episode") {
-				TitleString = "S" + mr.parentIndex + "E" + mr.index + " - " + resultTitle;
-				tagline = mr.grandParentTitle + " (" + mr.year + ") ";
+				TitleString = "S" + mr["parentIndex"] + "E" + mr.index + " - " + resultTitle;
+				tagline = mr["grandParentTitle"] + " (" + mr.year + ") ";
 			}
 
 			if (resultType === "track") {
 				TitleString = resultTitle;
-				tagline = mr.grandParentTitle + " - " + mr.parentTitle;
+				tagline = mr["grandParentTitle"] + " - " + mr["parentTitle"];
 			}
 
-			var resultOffset = data.time;
-			var volume = data.volume;
-			resultDuration = mr.duration;
+			var resultOffset = data["time"];
+			var volume = data["volume"];
+			resultDuration = mr["duration"];
 			var progress = (resultOffset / 1000);
 			progressSlider.bootstrapSlider({max: resultDuration / 1000});
 			progressSlider.bootstrapSlider('setValue', progress);
@@ -568,12 +604,9 @@ function updateCommands(data, prepend) {
 		}
 
 		$.each(data, function (i, value) {
-			console.log("Command data: ",value);
 			if (value === []) return true;
 			try {
 				var timeStamp = (value.hasOwnProperty('timeStamp') ? $.trim(value.timeStamp) : '');
-				speech = (value.speech ? value.speech : "");
-				if ($(window).width() < 700) speech = speech.substring(0, 100);
 				itemJSON = value;
 				var mediaDiv;
 				// Build our card
@@ -603,8 +636,6 @@ function updateCommands(data, prepend) {
 				},700);
 
 				$('.lazy').Lazy();
-
-				str = "#" + timeStamp;
 			} catch (e) {
 				console.error(e, e.stack);
 			}
@@ -618,13 +649,11 @@ function updateCommands(data, prepend) {
 			});
 
 			$('#CARDCLOSE' + i).click(function () {
-				var id = $(this).attr("id").replace("CARDCLOSE", "");
 				var stamp = $(this).parent().attr("id");
 				$(this).parent().slideUp(750, function () {
 					$(this).remove();
 				});
 				apiToken = $('#apiTokenData').data('token');
-
 				$.get('api.php?apiToken=' + apiToken + '&card=' + stamp, function (data) {
 					lastUpdate = data;
 				});
@@ -698,9 +727,9 @@ function buildCards(value, i) {
 	var title = '';
 	var subtitle = '';
 	var description = '';
-	var initialCommand = ucFirst(value.initialCommand);
-	var speech = (value.speech ? value.speech : "");
-	var JSONdiv = '<a href="javascript:void(0)" id="JSON' + i + '" class="JSONPop" data="' + encodeURIComponent(JSON.stringify(value, null, 2)) + '" title="Result JSON">{JSON}</a>';
+	var initialCommand = ucFirst(value["initialCommand"]);
+	var speech = (value["speech"] ? value["speech"] : "");
+    var JSONdiv = '<a href="javascript:void(0)" id="JSON' + i + '" class="JSONPop" data="' + encodeURIComponent(JSON.stringify(value, null, 2)) + '" title="Result JSON">{JSON}</a>';
 	if ($(window).width() < 700) speech = speech.substring(0, 100);
 
 	if (value.hasOwnProperty('cards')) {
@@ -756,7 +785,7 @@ function animateContent(angle,speed)
 		animationOffset = 0;
 	}
 
-	sc.animate({ "marginTop": (animationOffset)+ "px" }, speed, 'swing',function() {
+	sc.animate({"marginTop": (animationOffset)+ "px"}, speed, 'swing',function() {
 		scrolling = 'pause';
 		direction = (direction ==="up") ? "down" : "up";
 	});
@@ -797,7 +826,8 @@ function hasContent(obj) {
 function ucFirst(string) {
 	if (string !== undefined && string !== null) {
 		if (string.length !== 0) {
-			return string.charAt(0).toUpperCase() + string.slice(1);
+			var char1 = string.split("")[0];
+			return char1.toUpperCase() + string.slice(1);
 		}
 	}
 	return '';
@@ -809,29 +839,41 @@ function notify() {
 
 
 function fetchWeather() {
-	$.get("https://freegeoip.net/json/", function (data) {
-		city = data.city;
-		state = data.region_name;
+	var condition = "";
+	$.getJSON('https://geoip.tools/v1/json', function (data) {
+		city = data["city"];
+		state = data["region_name"];
+		console.log("City and state are " + city + " and " + state);
 		$.simpleWeather({
 			location: city + ',' + state,
 			woeid: '',
 			unit: 'f',
 			success: function (weather) {
-				weatherHtml = weather.temp + String.fromCharCode(176) + weather.units.temp;
-				condition = weather.code;
+				console.log("SUCCESS!",weather);
+				setWeather(weather);
 			},
 			error: function (error) {
 				console.log("Error: ", error);
-				condition = "";
+				setWeather("");
 			}
 		});
 	});
+	return condition;
 
 }
 
-function setWeather() {
-	fetchWeather();
-	switch (condition) {
+function setWeather(weather) {
+	var condition;
+	if (weather !== "") {
+		var cityString = weather.city + ", " + weather.region;
+		var weatherHtml = weather.temp + String.fromCharCode(176) + weather.units.temp;
+        condition = weather.code;
+    } else {
+		condition = "";
+	}
+	console.log("Condition? " + condition);
+	console.log("Condition is '" + condition + "'. Weather html is '" + weatherHtml + "'.");
+    switch (condition) {
 		case "0":
 		case "1":
 		case "2":
@@ -917,12 +959,12 @@ function setWeather() {
 			break;
 
 	}
-	$('.weatherIcon').html('<span class="weather ' + weatherClass + '"> </span>');
+	$('.weatherIcon').html('<span id="city">'+cityString+'</span><span class="weather ' + weatherClass + '"> </span>');
 	$(".tempDiv").text(weatherHtml);
 }
 
 function setTime() {
-    date = new Date();
+    var date = new Date();
     var hours = date.getHours();
     var minutes = date.getMinutes();
     var ampm = hours >= 12 ? 'PM' : 'AM';
@@ -932,12 +974,6 @@ function setTime() {
     var time = hours + ':' + minutes + ' ' + ampm;
     var timeDiv = $(".timeDiv");
     if (time !== timeDiv.text()) timeDiv.text(time);
-}
-
-function imgError(image) {
-	image.onerror = "";
-	image.src = "https://img.phlexchat.com?height=" + $(document).height() + "&width=" + $(document).width() + "&v=" + (Math.floor(Math.random() * (1084)));
-	return true;
 }
 
 function setListeners() {
@@ -1008,10 +1044,9 @@ function setListeners() {
 		$.snackbar({content: "Logging out."});
 		sessionStorage.clear();
 		localStorage.clear();
-		window.caches.delete('phlex');
-		caches.delete('phlex');
-
-		setcookie('PHPSESSID', '', time() - 86400, '/folder/');
+		var del = window.caches.delete('phlex');
+		del = caches.delete('phlex');
+		setCookie('PHPSESSID','',1);
 		setTimeout(
 			function () {
 				$('#mainWrap').css({"top": "-200px"});
@@ -1029,14 +1064,21 @@ function setListeners() {
 		var value, regUrl;
 		if ($(this).hasClass("copyInput")) {
 			value = $(this).val();
-			clipboard.copy(value);
-			$.snackbar({content: "Successfully copied URL."});
+			
+			copyString(value);
 		}
 
 		if ($(this).hasClass("testInput")) {
-			value = encodeURIComponent($(this).val());
+			var url = "";
+			if ($(this).val() === 'broadcast') {
+				var msg = encodeURIComponent("Flex TV is the bee's, knees, Mcgee.");
+				url = 'api.php?notify=true&message=' + msg + '&apiToken=' + apiToken;
+			} else {
+                value = encodeURIComponent($(this).val());
+                url = 'api.php?test=' + value + '&apiToken=' + apiToken
+            }
 
-			$.get('api.php?test=' + value + '&apiToken=' + apiToken, function (data) {
+			$.get(url, function (data) {
 				if (data.hasOwnProperty('status')) {
 					console.log("We have a msg.",data['status']);
 					var msg = data['status'].replace(/"/g,"");
@@ -1046,8 +1088,8 @@ function setListeners() {
 				if (data.hasOwnProperty('list')) {
 					var list = data['list'];
 					if (list !== false) {
-						var appName = "#" + value.toLowerCase() + "List";
-                        console.log("We have a list!",list);
+						var appName = "#" + value.toLowerCase() + "Profile";
+                        console.log("We have a list, appending to " + appName,list);
                         $(appName).html(list);
 					}
 				}
@@ -1063,8 +1105,8 @@ function setListeners() {
 
 		if ($(this).hasClass("hookLnk")) {
 			appName = $(this).data('value');
-			var string = serverAddress + "/api.php?apiToken=" + apiToken + "&notify=true";
-			clipboard.copy(string);
+			var string = serverAddress + "api.php?apiToken=" + apiToken + "&notify=true&message=";
+			copyString(string);
 		}
 
         if ($(this).hasClass("logBtn")) {
@@ -1090,10 +1132,10 @@ function setListeners() {
 			serverAddress = encodeURIComponent(serverAddress);
 			if (action === 'googlev2') regUrl = 'https://phlexchat.com/api.php?apiToken=' + apiToken + "&serverAddress=" + serverAddress;
 			if (action === 'amazon') regUrl = 'https://phlexchat.com/alexaAuth.php?apiToken=' + apiToken + "&serverAddress=" + serverAddress;
-			if (regUrl !== false) {
-				var newwindow = window.open(regUrl, '');
+			if (typeof(regUrl) === "string") {
+				var newWindow = window.open(regUrl, '');
 				if (window.focus) {
-					newwindow.focus();
+					newWindow.focus();
 				}
 			} else {
 				if (action === 'test') {
@@ -1129,7 +1171,7 @@ function setListeners() {
 		} else {
 			console.log("Rescanning devices.");
 		}
-		updateDevice('Client', clientId, apiToken);
+		updateDevice('Client', clientId);
 	});
 
 	$(document).on('click', '.nav-item', function () {
@@ -1152,6 +1194,16 @@ function setListeners() {
 			id: serverID
 		});
 	});
+
+    $(document).on("click change", "#broadcastList",function () {
+        var ID = $(this).val();
+        apiToken = $('#apiTokenData').data('token');
+
+        $.get('api.php?apiToken=' + apiToken, {
+            device: 'Broadcast',
+            id: ID
+        });
+    });
 
 	$(document).on("click change", "#dvrList", function () {
 		var serverID = $(this).val();
@@ -1263,7 +1315,7 @@ function setListeners() {
 			return;
 		}
 
-		if (Notification.permission !== "granted")
+		if (Notification["permission"] !== "granted")
 			Notification.requestPermission();
 	});
 
@@ -1285,6 +1337,14 @@ function setListeners() {
 		$.get('api.php?say&noLog=true&command=' + myId + "&apiToken=" + apiToken);
 	});
 
+    $(document).on('click', '#autoUpdate', function () {
+		var value = $(this).is(':checked');
+		if (value) {
+			$('#installUpdates').hide();
+		} else {
+            $('#installUpdates').show();
+		}
+    });
 
 	$(document).on('change', '.appInput', function () {
 		id = $(this).attr('id');
@@ -1298,7 +1358,7 @@ function setListeners() {
 			value = resetApiUrl($(this).val());
 		}
 
-		if ($(this).hasClass('appToggle') && $(this).data('app') !== 'autoUpdate') {
+		if ($(this).hasClass('appToggle') && id !== 'autoUpdate') {
 			id = id + "Enabled";
 		}
 
@@ -1328,29 +1388,22 @@ function setListeners() {
 	});
 }
 
-jQuery.extend({
-	arrayCompare: function (arrayA, arrayB) {
-		if (arrayA.length !== arrayB.length) {
-			return false;
-		}
-		// sort modifies original array
-		// (which are passed by reference to our method!)
-		// so clone the arrays before sorting
-		for (var i = 0, l = arrayA.length; i < l; i++) {
-			if (arrayA[i].length !== arrayB[i].length) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-});
-
 function clearLoadBar() {
 	if (waiting) {
 		$('.load-bar').hide();
 	}
 }
+
+function setCookie(key, value, days) {
+    var expires = new Date();
+    if (days) {
+        expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+        document.cookie = key + '=' + value + ';expires=' + expires.toUTCString();
+    } else {
+        document.cookie = key + '=' + value + ';expires=Fri, 30 Dec 9999 23:59:59 GMT;';
+    }
+}
+
 
 $(window).on("load",function () {
 	$('body').addClass('loaded');
@@ -1364,3 +1417,14 @@ $(window).on("load",function () {
 	}
 
 });
+
+function copyString(data) {
+    var dummy = document.createElement("input");
+    document.body.appendChild(dummy);
+    dummy.setAttribute("id", "dummy_id");
+    document.getElementById("dummy_id").value=JSON.stringify(data);
+    dummy.select();
+    document.execCommand("copy");
+    document.body.removeChild(dummy);
+    $.snackbar({content: "Successfully copied data."});
+}

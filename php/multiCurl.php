@@ -30,15 +30,22 @@ class multiCurl
         foreach($urls as $i => $item) {
             if (is_array($item)) {
                 $url = $item[0];
-                $header = $item[1];
+                $header = [$item[1]];
+                $post = $item[2] ?? false;
             } else {
                 $url = $item;
-                $header = false;
+                $header = $post = false;
+                $post = false;
             }
             write_log("URL: $url");
             $ch[$i] = curl_init($url);
             curl_setopt($ch[$i], CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch[$i],CURLOPT_CONNECTTIMEOUT,$timeout);
+            curl_setopt($ch[$i],CURLOPT_TIMEOUT,$timeout);
+            if ($post) {
+				curl_setopt($ch[$i], CURLOPT_POST, count($post));
+				curl_setopt($ch[$i], CURLOPT_POSTFIELDS, $post);
+			}
 
             if ($header) {
                 //write_log("We have headers: ".json_encode($header));
@@ -100,12 +107,13 @@ class multiCurl
                 try {
                     $data = json_decode($response, true);
                     if (json_last_error()!==JSON_ERROR_NONE) {
-                        write_log("This is not JSON");
+                        write_log("Result for url $url is not JSON.");
                     }
                     $xml = simplexml_load_string($response);
                     if ($xml !== false) {
                         $xml = new JsonXmlElement($response);
                         $data = $xml->asArray();
+                        if (!is_array($data)) write_log("Data for url $url is not XML");
                     }
                 } catch (\Exception $e) {
                     //write_log("Exception: $e");

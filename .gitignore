@@ -5,11 +5,12 @@
 /config*
 /composer.lock
 /.idea/*
-/cacert.pem
 /manifest.json
 /logs/*.log.php
 /logs/*.log.old.php
 /rw/config.ini.php
+/rw/db.conf.php
+/rw/db.json.php
 /rw/config.php
 /rw/commands.php
 /rw/cacert.pem
@@ -18,3 +19,6 @@
 *.db.conf.php
 /img/cache/*
 !/img/cache/_.placeholder
+php/cacert.pem
+logCustom.php
+minify.php

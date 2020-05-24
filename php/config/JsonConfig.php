@@ -10,6 +10,7 @@ class JsonConfig extends ArrayObject {
     protected $secure;
 
     public $data;
+    private $cache;
 
     /**
      * JsonConfig constructor.
@@ -24,10 +25,11 @@ class JsonConfig extends ArrayObject {
         $this->secure = $secure;
         $data = $this->read();
         if (!is_array($data)) {
-            write_log("Error, dying to protect config.");
+            write_log("Error, dying to protect config.","ERROR",false,false,true);
             die();
         } else {
             $this->data = $data;
+            $this->cache = $data;
         }
 
     }
@@ -118,6 +120,7 @@ class JsonConfig extends ArrayObject {
         $sectionData = $this->data[$section] ?? false;
         if ($sectionData) {
             if ($selectors && $values) {
+            	# If our selector/value is a single key/pair
                 if (is_string($selectors)) {
                     $selector = $selectors;
                     $value = $values;
@@ -128,21 +131,26 @@ class JsonConfig extends ArrayObject {
                         $i++;
                     }
                 } else {
-                    $j = 0;
-                    foreach($selectors as $selector) {
-                        $i = 0;
-                        $value = $values[$i];
-                        foreach ($sectionData as $record) {
-                            $check = $record[$selector] ?? 'foo';
-                            if ($check == $value) unset($sectionData[$i]);
-                            $i++;
-                        }
-                        $j++;
-                    }
+                    $matches = [];
+	                foreach ($sectionData as $key=>$record) {
+	                	$match = true;
+		                $i = 0;
+		                foreach ($selectors as $selector) {
+			                $value = $values[$i];
+			                $check = $record[$selector] ?? 'foo';
+			                if ($check !== $value) $match = false;
+			                $i++;
+		                }
+		                if ($match) {
+			                write_log("Deleting matching record: " . json_encode($sectionData[$key]),"INFO",false,false,true);
+			                array_push($matches,$key);
+		                }
+	                }
+	                foreach($matches as $key) unset($sectionData[$key]);
                 }
                 $this->data[$section] = $sectionData;
             } else {
-                write_log("Unsetting a whole section because you told me to.","ALERT");
+                write_log("Unsetting a whole section because you told me to.","ALERT",false,false,true);
                 unset($this->data[$section]);
             }
             $this->save();
@@ -189,8 +197,6 @@ class JsonConfig extends ArrayObject {
                 $data = json_decode($data,true);
                 if (!$data) {
                     write_log("JSON Decode failed!!","ALERT");
-                    rename($path,$path.".bk");
-                    $data = [];
                 }
             }
         } else {
@@ -214,13 +220,14 @@ class JsonConfig extends ArrayObject {
 
         if (!$result) {
             write_log("Can't save file!","ERROR");
-            throw New ConfigException("Error saving file, this is bad!!");
+            $this->data = $this->cache;
+        } else {
+            $this->cache = $this->data;
         }
         return $result;
     }
 
     protected function write($contents) {
-        $result = false;
         $path = $this->fileName;
         $result = file_put_contents($path,$contents,LOCK_EX);
         return $result !== false;

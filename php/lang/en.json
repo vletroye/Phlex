@@ -47,15 +47,16 @@
 		]
 	},
 	"errorHelpSuggestionsArray": [
-		"Below are some suggestions you can try.",
-		"Here are some possible commands.",
-		"Sure, why don't you try one of these?"
+		"These are some of the things you can ask me to do:",
+		"Here are some possible commands:",
+		"Sure, you can try one of these:"
 	],
 	"errorHelpCommandsArray": [
 		"What's on deck?",
 		"What new movies do I have?",
 		"Pause playback.",
-		"Play Batman Begins."
+		"Play Batman Begins.",
+		"Play the new Korn album."
 	],
 	"fetchSynonymsArray": {
 		"season": [
@@ -345,6 +346,17 @@
 		"Success! "
 	],
 	"speechPlayer": "player",
+	"speechNoMediaArray": [
+		"Unfortunately, I couldn't find '<TITLE>' in the library.",
+		"I'm sorry, but I didn't find any results for '<TITLE>'.",
+		"I couldn't find anything called '<TITLE>' in your libraries."
+	],
+	"speechNoMediaFetchPrompts": [
+		"Would you like me to add it to your watch lists?",
+		"Should I try to fetch it for you?",
+		"Do you want me to try downloading it for you?",
+		"Shall I search for it in your fetchers?"
+	],
 	"speechPlayError3": "I couldn't find that in the library, do you want me to try downloading it?",
 	"speechPlayErrorEnd1": " in your library. Should I try to add it to the watch lists?",
 	"speechPlayErrorEnd2": "' to play. Should I try to fetch it for you?'",
@@ -367,6 +379,7 @@
 		"For <TYPE>, you have:",
 		"I found these <TYPE> in your library:"
 	],
+	"speechReturnInfoTail": "You can say the name of one of these, or cancel if you're done for now.",
 	"speechServer": "server",
 	"speechShuffleResponse": "Okay, shuffling",
 	"speechStatusNothingPlaying": "It doesn't look like there's anything playing right now.",
@@ -378,9 +391,9 @@
 	"suggestionDvr": "DVR Jeopardy.",
 	"suggestionSick": ["Fetch the show Weeds.","Download the latest episode of Corporate."],
 	"suggestionsApps": {
-		"show":["Download the latest episode of Jeopardy","Fetch the show Young Sheldon"],
+		"show":["Fetch the new episode of ALF","Fetch the show Young Sheldon"],
 		"movie":["Download Ghost Rider","Fetch Ghostbusters 1989"],
-		"music":["Download the latest Metallica album","Grab the new Glitch Mob song"],
+		"music":["Fetch the new Cee-lo album","Grab the new Glitch Mob song"],
 		"dvr":["Record Wheel of Fortune","DVR Dr. Phil"]
 	},
 	"suggestionYesNo": [
@@ -389,12 +402,15 @@
 	],
 	"uiGreetingDefault": "How can I help?",
 	"uiPageTitle": "Flex TV(Web)",
+	"uiNoCastPlugin": "The Cast plugin was not found on any of your servers. Click here to find out how to get it.",
 	"uiPlayerSelectPrompt": "Select a player to control.",
 	"uiRescanDevices": "Rescan devices",
 	"uiSettingAccountLinking": "Account Linking",
 	"uiSettingApiKey": "API Key:",
 	"uiSettingAutoUpdate": "Automatically Install Updates",
 	"uiSettingNotifyUpdate": "Notify when updates are available",
+	"uiSettingBroadcastDevice": "Broadcast Device",
+	"uiSettingBroadcastDeviceHint": "The device to broadcast notifications to.",
 	"uiSettingBtnReset": "RESET",
 	"uiSettingBtnTest": "TEST",
 	"uiSettingCastLogs": "Download Cast Logs",

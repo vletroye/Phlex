@@ -13,15 +13,15 @@ $publicAddress = serverAddress();
 $_SESSION['appAddress'] = $publicAddress;
 $_SESSION['publicAddress'] = $publicAddress;
 
-function updateUserPreference($key, $value) {
+function updateUserPreference($key, $value, $section='userdata') {
     $value = scrubBools($value, $key);
-    setPreference('userdata',[$key=>$value],'apiToken',$_SESSION['apiToken']);
+    setPreference($section, [$key=>$value],'apiToken',$_SESSION['apiToken']);
     writeSession($key,$value);
 }
 
-function updateUserPreferenceArray($data) {
+function updateUserPreferenceArray($data, $section='userdata') {
     $data = scrubBools($data);
-    setPreference('userdata',$data,'apiToken',$_SESSION['apiToken']);
+    setPreference($section,$data,'apiToken',$_SESSION['apiToken']);
     writeSessionArray($data);
 }
 
@@ -72,29 +72,30 @@ function scrubBools($scrub, $key=false) {
     return $return;
 }
 
-function initConfig() {
-    $config = isWebApp() ? false : ($_SESSION['configObject'] ?? false);
-    $configObject = false;
-    $error = false;
-    $dbFile = dirname(__FILE__) . "/../rw/db.conf.php";
-    $jsonFile = dirname(__FILE__). "/../rw/config.php";
-    $configFile = file_exists($dbFile) ? $dbFile : $jsonFile;
-    if (!$config) {
-        //write_log("Creating session config object.");
-        if (file_exists($dbFile)) checkDefaultsDb($dbFile);
-        try {
-            $config = new digitalhigh\appConfig($configFile);
-        } catch (\digitalhigh\ConfigException $e) {
-            write_log("An exception occurred creating the configuration. '$e'", "ERROR");
-            $error = true;
-        }
-        $_SESSION['configObject'] = $config;
-    }
-    if (!$error) {
-        $configObject = $config->ConfigObject;
-    }
 
-    return $configObject;
+function initConfig() {
+	$configObject = false;
+	$error = false;
+	$dbConfig = dirname(__FILE__) . "/../rw/db.json.php";
+	$jsonFile = dirname(__FILE__). "/../rw/config.php";
+	$type = file_exists($dbConfig) ? 'db' : 'file';
+	$config = file_exists($dbConfig) ? $dbConfig : $jsonFile;
+	if ($type === 'db') {
+		$configData = str_replace("'; <?php die('Access denied'); ?>", "", file_get_contents($config));
+		$configData = json_decode($configData, true);
+		checkDefaultsDb($configData);
+	}
+	try {
+		$config = new digitalhigh\appConfig($config, $type);
+	} catch (\digitalhigh\ConfigException $e) {
+		write_log("An exception occurred creating the configuration. '$e'", "ERROR", false, false, true);
+		$error = true;
+	}
+	if (!$error) {
+		$configObject = $config->ConfigObject;
+	}
+
+	return $configObject;
 }
 
 function setPreference($section, $data, $selector=null, $search=null, $new=false) {
@@ -121,6 +122,9 @@ function getPreference($section, $keys=false, $default=false, $selector=null, $s
 
 function deleteData($section, $selector=null, $value=null) {
     $config = initConfig();
+    $selString = (is_array($selector)) ? json_encode($selector) : $selector;
+	$valString = (is_array($value)) ? json_encode($value) : $value;
+    write_log("Got a command to delete $section - $selString - $valString");
     $config->delete($section, $selector, $value);
 }
 
@@ -131,7 +135,6 @@ function checkUpdate() {
     $git = new GitUpdate\GitUpdate(dirname(__FILE__)."/..");
     if ($git->hasGit) {
         $updates = $git->checkMissing();
-        write_log("Update data: ".json_encode($updates));
         $refs = $updates['refs'];
         writeSession('neededUpdates',$refs);
     }
@@ -139,6 +142,13 @@ function checkUpdate() {
     $updates['last'] = $git->fetchCommits([$revision]);
     $updates['revision'] = $revision;
     return $updates;
+}
+
+function checkRevision($short=false) {
+	write_log("Function fired!");
+	$git = new GitUpdate\GitUpdate(dirname(__FILE__)."/..");
+	$revision = ($git->hasGit) ? $git->revision : false;
+	return ($short && $revision) ? substr($revision,0,7) : $revision;
 }
 
 function installUpdate() {
@@ -167,15 +177,18 @@ function scriptDefaults() {
     ini_set('max_execution_time', 300);
     error_reporting(E_ERROR);
     $errorLogPath = file_build_path(dirname(__FILE__),'..', 'logs', 'Phlex_error.log.php');
+    $host = gethostname();
+    if (file_exists("/var/s3bucket/$host.log")) $errorLogPath = "/var/s3bucket/$host.log";
     ini_set("error_log", $errorLogPath);
     date_default_timezone_set((date_default_timezone_get() ? date_default_timezone_get() : "America/Chicago"));
 }
 
 function checkDefaults() {
-    // OG Stuff
-    $config = dirname(__FILE__) . "/../rw/db.conf.php";
-    $useDb = file_exists($config);
+	$configFile = "/../rw/db.json.php";
+	$useDb = file_exists($configFile);
     if ($useDb) {
+		$config = str_replace("'; <?php die('Access denied'); ?>", "", file_get_contents($configFile));
+		$config = json_decode($config, true);
         checkDefaultsDb($config);
     }
     // Loading from General
@@ -186,14 +199,16 @@ function checkDefaults() {
             foreach($value as $id => $data) {
                 if ($id == 'name') {
                     array_push($keys,$data);
-                } else {
+                }
+                if ($id == 'value') {
+                	if ($data === "true") $data = true;
+                	if ($data === "false") $data = false;
                     array_push($values,$data);
                 }
             }
         }
         $defaults = array_combine($keys,$values);
-        //$id = $defaults['deviceId'] ?? 'foo';
-        //if ($id == 'foo') $defaults = false;
+
     }
     if (!$defaults) {
         write_log("Creating default values!","ALERT");
@@ -205,19 +220,21 @@ function checkDefaults() {
             'deviceName' => "Flex TV (Home)",
             'publicAddress' => currentAddress(),
             'revision' => '000',
-            'updates' => "[]"
+            'updates' => "[]",
+	        'cleanLogs' => true
         ];
         foreach($defaults as $key=>$value) {
             $data = ['name'=>$key, 'value'=>$value];
             setPreference('general',$data,"name",$key);
         }
+    } else {
+    	write_log("Fetched defaults: ".json_encode($defaults));
     }
     return $defaults;
 }
 
 function checkDefaultsDb($config) {
-    $config = parse_ini_file($config);
-    $db = $config['dbname'];
+
     $head = '<!DOCTYPE html>
         <html lang="en">
         <head>
@@ -231,7 +248,11 @@ function checkDefaultsDb($config) {
                 </body>
                 </html>';
 
-    $mysqli = new mysqli('localhost',$config['username'],$config['password']);
+	$db = $config['database'];
+	$host = $config['host'] ?? "localhost";
+	$username = $config['username'];
+	$pass = $config['password'];
+	$mysqli = new mysqli($host, $username, $pass);
     $noDb = false;
     if (! $mysqli->select_db($db)) {
         $noDb = true;
@@ -362,6 +383,9 @@ function checkDefaultsDb($config) {
  `hookPausedUrl` longtext NOT NULL,
  `hookFetchUrl` longtext NOT NULL,
  `hookCustomUrl` longtext NOT NULL,
+ `broadcastDevice` tinytext NOT NULL,
+ `quietStart` tinytext NOT NULL DEFAULT '20:00',
+ `quietStop` tinytext NOT NULL DEFAULT '8:00',
  PRIMARY KEY (`apiToken`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1";
                     break;
@@ -434,7 +458,13 @@ function fetchCommands() {
             array_push($out,$data);
         }
     }
-    return array_reverse($out);
+	usort($out, function ($a, $b) {
+		if ($a['timecode'] == $b['timecode']) {
+			return 0;
+		}
+		return ($a['timecode'] < $b['timecode']) ? 1 : -1;
+	});
+    return $out;
 }
 
 #TODO: Should we be writing session here?
@@ -493,7 +523,7 @@ function logCommand($resultObject) {
     $data = json_encode($resultObject);
     if (trim($apiToken) && trim($data)) {
         #TODO: Verify that the commands are in the right order here
-        $rows = getPreference('commands','stamp',[],'apiToken',$apiToken,false);
+        $rows = getPreference('commands',['data','stamp'],[],'apiToken',$_SESSION['apiToken'],false);
         if (is_array($rows)) $rows = array_reverse($rows);
         $i = 1;
         $stamps = [];
@@ -517,7 +547,9 @@ function logCommand($resultObject) {
 
 function firstUser() {
     $data = getPreference('userdata',false,[]);
-    return (is_array($data) && count($data)) ? false : true;
+    $isFirst = (is_array($data) && count($data)) ? false : true;
+    if ($isFirst) write_log("HELLO, MASTER.","ALERT");
+    return $isFirst;
 }
 
 function newUser($user) {
@@ -544,7 +576,9 @@ function newUser($user) {
         'masterUser' => firstUser(),
         'publicAddress' => currentAddress(),
         'shortAnswers' => false,
-        'autoUpdate' => false
+        'autoUpdate' => false,
+	    'quietStart' => "20:00",
+	    'quietStop' => "8:00"
     ];
     $user = array_merge($user,$defaults);
     write_log("Creating and saving $userName as a new user: ".json_encode($defaults),"ALERT");
@@ -631,7 +665,8 @@ function checkFiles() {
     }
     foreach ($files as $file) {
         if (!file_exists($file)) {
-            write_log("Creating file $file");
+        	$name = basename($file);
+            write_log("Creating file $name","INFO",false,false,true);
             touch($file);
             chmod($file, 0777);
             file_put_contents($file, $secureString);
@@ -673,9 +708,6 @@ function checkFiles() {
         }
     }
 
-
-    //$testMessage = ['title'=>'Test message.','message'=>"This is a test of the emergency alert system. If this were a real emergency, you'd be screwed.",'url'=>'https://www.google.com'];
-    //array_push($messages,$testMessage);
     return $messages;
 }
 

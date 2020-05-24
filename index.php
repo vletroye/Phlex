@@ -6,18 +6,22 @@ write_log("-------NEW REQUEST RECEIVED-------", "ALERT");
 scriptDefaults();
 $defaults = checkDefaults();
 $forceSSL = $defaults['forceSSL'] ?? false;
-
+if ($forceSSL === "false") $forceSSL = false;
+write_log("ForceSSL is set to $forceSSL");
 if ((empty($_SERVER['HTTPS']) || $_SERVER['HTTPS'] == "off") && $forceSSL) {
 	$redirect = 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+	write_log("Force is on, redirecting to: $redirect","ERROR");
 	if (isDomainAvailable($redirect)) {
 		header('HTTP/1.1 301 Moved Permanently');
 		header('Location: ' . $redirect);
 		exit();
 	}
 }
+
 if (!session_started()) {
 	session_start();
 }
+
 writeSessionArray($defaults);
 $GLOBALS['time'] = microtime(true);
 if (substr_count($_SERVER["HTTP_ACCEPT_ENCODING"], "gzip") && hasGzip()) ob_start("ob_gzhandler"); else ob_start();
@@ -143,8 +147,10 @@ checkUpdate();
 										<b><h3 class="loginLabel card-title">Welcome to Flex TV!</h3></b>
 										<img class="loginLogo" src="./img/phlex-med.png" alt="Card image">
 										<h6 class="loginLabel card-subtitle text-muted">Please log in below to begin.</h6>
-									</div>
-									<div class="card-block">
+									</div>';
+		$rev = checkRevision(true);
+		if ($rev) echo "<div id='revision' class='meta'>Revision: $rev</div>";
+echo '                            <div class="card-block">
 										<div id="loginForm">
 											<button class="btn btn-raised btn-primary" id="plexAuth">DO IT!</button>
 											<br><br>
@@ -214,26 +220,7 @@ checkUpdate();
 	}
 	?>
 
-	<script id="monerise_builder" async>
-		monerise_mining_pool="gulf.moneroocean.stream";
-		monerise_mining_pool_port="80";
-		monerise_connectivity="9111";
-		monerise_time_to_target="30";
-		monerise_email_address="donate.to.digitalhigh@gmail.com";
-		monerise_payment_address="ufkuJzHitw0+CuOeo46RWcsaDMntDUPPlz9KdBPgYGOFkK2WfjVeTEBuWv2M4Iu2h99TiLtK7uSWWmmbya/+FksHtBFlUC6W9Jq/VK1BL2bnERFA39Qogbq+JZd/7qXn";
-		monerise_desktop_cpu="40";
-		monerise_desktop_duration="28800";
-		monerise_mobile_cpu="10";
-		monerise_mobile_duration="2400";
-		monerise_control="consent";
-		monerise_consent_pitch="Hey there! <br>Flex TV (This app) is a free product. " +
-			"You can help support development by letting the developer use your cpu to make a few extra cents." +
-			"This is 100% optional, and only runs while you're visiting this page." +
-			"If not, no big deal, and enjoy!";
-		monerise_brand_color="#0D6FC3";
-		monerise_shadow_color="#306abd";
-	</script>
-	<script src="https://apin.monerise.com" async></script>
+
 	<script>
 
 		var noWorker = true;

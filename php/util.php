@@ -3,6 +3,7 @@
 require_once dirname(__FILE__) . '/vendor/autoload.php';
 require_once dirname(__FILE__) . '/JsonXmlElement.php';
 require_once dirname(__FILE__) . '/multiCurl.php';
+if (@file_exists('/var/www/util/serverUtil.php')) require_once '/var/www/util/serverUtil.php';
 
 function array_diff_assoc_recursive($array1, $array2)
 {
@@ -61,11 +62,11 @@ function bye($msg = false, $title = false, $url = false, $log = false, $clear = 
                     var array = [{title:'$title',message:'$msg',url:'$url'}];
                     loopMessages(array);
                 </script>";
-        echo($display);
+	    echo $display;
     }
     $actual_link = (isset($_SERVER['HTTPS']) ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
     $url = parse_url($actual_link);
-    $url = $url['scheme']."://".$url['host'].$url['path'];
+    $url = $url['scheme']."://".$url['host'].":".$url['port'].$url['path'];
     $url = "$url?device=Client&id=rescan&passive=true&apiToken=".$_SESSION['apiToken'];
     $rescan = $_GET['pollPlayer'] ?? $_GET['passive'] ?? null;
     $executionTime = round(microtime(true) - $_SERVER["REQUEST_TIME_FLOAT"],2)."s";
@@ -78,6 +79,9 @@ function bye($msg = false, $title = false, $url = false, $log = false, $clear = 
     // TODO: Make sure this is only done when webflag is set
 
     write_log("-------TOTAL RUN TIME: $executionTime-------","ALERT");
+	if (function_exists('fastcgi_finish_request')) {
+		fastcgi_finish_request();
+	}
     die();
 }
 
@@ -87,67 +91,73 @@ function build_sorter($key) {
     };
 }
 
-function cacheImage($url, $image = false) {
-    write_log("Function fired, caching " . $url);
+function cacheImage($url) {
+    $block = parse_url($url);
+    $host = $block['host'] ?? $block['address'];
+	$isIp = filter_var($host,FILTER_VALIDATE_IP);
+	if ($isIp) {
+		$filtered = filter_var($host, FILTER_VALIDATE_IP,
+			FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE |  FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_IPV6
+		);
+	} else {
+		$filtered = !preg_match("/localhost/",$host);
+	}
+	$good = ($filtered);
+	if ($good) {
+		write_log("No need to cache, this should be a valid public address.","INFO");
+		return $url;
+	}
     $path = $url;
-    $cached_filename = false;
-    try {
-        $URL_REF = $_SESSION['publicAddress'] ?? fetchUrl(false);
-        $cacheDir = file_build_path(dirname(__FILE__), "img", "cache");
-        checkCache($cacheDir);
-        if ($url) {
-            $cached_filename = md5($url);
-            $files = glob($cacheDir . '/*.{jpg,jpeg,png,gif}', GLOB_BRACE);
-            $now = time();
-            foreach ($files as $file) {
-                $fileName = explode('.', basename($file));
-                if ($fileName[0] == $cached_filename) {
-                    write_log("File is already cached.");
-                    $path = $URL_REF . getRelativePath(dirname(__FILE__), $file);
-                } else {
-                    if (is_file($file)) {
-                        if ($now - filemtime($file) >= 60 * 60 * 24 * 5) { // 5 days
-                            unlink($file);
-                        }
-                    }
+
+    $homeAddress = rtrim($_SESSION['publicAddress'] ?? fetchUrl(false),"/");
+    $cacheDir = file_build_path(dirname(__FILE__), "..", "img", "cache");
+    checkCache($cacheDir);
+    $cached_filename = md5($url);
+    $files = glob($cacheDir . '/*.{jpg,jpeg,png,gif}', GLOB_BRACE);
+    $now = time();
+    foreach ($files as $file) {
+        $fileName = explode('.', basename($file));
+        if ($fileName[0] == $cached_filename) {
+        	$path = "$homeAddress/img/cache/".basename($file);
+        } else {
+            if (is_file($file)) {
+                if ($now - filemtime($file) >= 60 * 60 * 24 * 5) { // 5 days
+                    unlink($file);
                 }
             }
         }
-        if ($image) {
-            $cached_filename = md5($image);
-        }
-        if ((($path == $url) || ($image)) && ($cached_filename)) {
-            write_log("Caching file.");
-            if (!$image) $image = file_get_contents($url);
-            if ($image) {
-                write_log("Image retrieved successfully!");
-                $tempName = file_build_path($cacheDir, $cached_filename);
-                file_put_contents($tempName, $image);
-                $imageData = getimagesize($tempName);
-                $extension = image_type_to_extension($imageData[2]);
-                if ($extension) {
-                    write_log("Extension detected successfully!");
-                    $filenameOut = file_build_path($cacheDir, $cached_filename . $extension);
-                    $result = file_put_contents($filenameOut, $image);
-                    if ($result) {
-                        rename($tempName, $filenameOut);
-                        $path = $URL_REF . getRelativePath(dirname(__FILE__), $filenameOut);
-                        write_log("Success, returning cached URL: " . $path);
-                    }
-                } else {
-                    unset($tempName);
-                }
-            }
-        }
-    } catch (\Exception $e) {
-        write_log('Exception: ' . $e->getMessage());
     }
+
+    if ($path == $url && $cached_filename) {
+        $image = file_get_contents($url);
+        if ($image) {
+	        $tempName = file_build_path($cacheDir, $cached_filename);
+	        file_put_contents($tempName, $image);
+	        $imageData = getimagesize($tempName);
+	        $extension = image_type_to_extension($imageData[2]);
+	        if ($extension) {
+		        $outFile = file_build_path($cacheDir, $cached_filename . $extension);
+		        $result = file_put_contents($outFile, $image);
+		        if ($result) {
+			        rename($tempName, $outFile);
+			        $path = "$homeAddress/img/cache/${cached_filename}${extension}";
+		        }
+	        } else {
+		        unset($tempName);
+	        }
+        } else {
+	        write_log("Unable to fetch image: $url","WARN");
+        }
+    }
+
     return $path;
 }
 
+
+
 function checkUrl($url, $returnError=false) {
-    $certPath = file_build_path(dirname(__FILE__),"..", "cert", "cacert.pem");
-    $url = filter_var($url, FILTER_SANITIZE_URL);
+	$cert = getCert();
+	$url = filter_var($url, FILTER_SANITIZE_URL);
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
         write_log("URL $url is not valid.","ERROR");
         return false;
@@ -156,7 +166,7 @@ function checkUrl($url, $returnError=false) {
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-    curl_setopt($ch, CURLOPT_CAINFO, $certPath);
+    curl_setopt($ch, CURLOPT_CAINFO, $cert);
 
     $result = curl_exec($ch);
     /* Get the error code. */
@@ -264,7 +274,7 @@ function cmp($a, $b) {
     return $b['ratingCount'] > $a['ratingCount'] ? 1 : -1;
 }
 
-function compareTitles($search, $check, $sendWeight = false, $exact=false) {
+function compareTitles($search, $check, $sendWeight=false, $exact=false) {
     if (!is_string($search) || !is_string($check)) return false;
     $search = cleanCommandString($search);
     $check = cleanCommandString($check);
@@ -314,8 +324,6 @@ function compareTitles($search, $check, $sendWeight = false, $exact=false) {
         $weight = ($strength > $similarity) ? $strength : $similarity;
         return $sendWeight ? $weight : $str;
     }
-
-
     return false;
 }
 
@@ -350,9 +358,8 @@ function numberToRoman($number) {
 }
 
 function curlGet($url, $headers = null, $timeout = 4) {
-    $cert = getContent(file_build_path(dirname(__FILE__),"..", "cacert.pem"), 'https://curl.haxx.se/ca/cacert.pem');
-    if (!$cert) $cert = file_build_path(dirname(__FILE__), "..","cert", "cacert.pem");
-    write_log("GET url $url","INFO","curlGet");
+	$cert = getCert();
+	write_log("GET url $url","INFO","curlGet");
     $url = filter_var($url, FILTER_SANITIZE_URL);
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
         write_log("URL $url is not valid.","ERROR");
@@ -366,7 +373,6 @@ function curlGet($url, $headers = null, $timeout = 4) {
     curl_setopt($ch, CURLOPT_CAINFO, $cert);
     if ($headers !== null) curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     $result = curl_exec($ch);
-    write_log("Curl result: ".json_encode($result));
     if (!curl_errno($ch)) {
         switch ($http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE)) {
             case 200:
@@ -377,10 +383,29 @@ function curlGet($url, $headers = null, $timeout = 4) {
         }
     }
     curl_close($ch);
+    if ($result) {
+    	$decoded = false;
+    	try {
+    		$array = json_decode($result,true);
+    		if ($array) {
+    			$decoded = true;
+			    write_log("Curl result(JSON): " . json_encode($array));
+		    } else {
+    			$array = (new JsonXmlElement($result))->asArray();
+    			if (!empty($array)) {
+				    $decoded = true;
+				    write_log("Curl result(XML): " . json_encode($array));
+			    }
+		    }
+    		if (!$decoded) write_log("Curl result(String): $result");
+	    } catch (Exception $e) {
+
+	    }
+    }
     return $result;
 }
 
-function curlPost($url, $content = false, $JSON = false, Array $headers = null) {
+function curlPost($url, $content = false, $JSON = false, Array $headers = null, $timeOut=3) {
     write_log("POST url $url","INFO","curlPost");
     $url = filter_var($url, FILTER_SANITIZE_URL);
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
@@ -388,15 +413,14 @@ function curlPost($url, $content = false, $JSON = false, Array $headers = null) 
         return false;
     }
 
-    $cert = getContent(file_build_path(dirname(__FILE__), "cacert.pem"), 'https://curl.haxx.se/ca/cacert.pem');
-    if (!$cert) $cert = file_build_path(dirname(__FILE__), "cert", "cacert.pem");
+	$cert = getCert();
     $curl = curl_init($url);
     curl_setopt($curl, CURLOPT_HEADER, false);
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_CAINFO, $cert);
     curl_setopt($curl, CURLOPT_POST, true);
     curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 4);
-    curl_setopt($curl, CURLOPT_TIMEOUT, 3);
+    curl_setopt($curl, CURLOPT_TIMEOUT, $timeOut);
     if ($headers) {
         if ($JSON) {
             $headers = array_merge($headers, ["Content-type: application/json"]);
@@ -471,7 +495,7 @@ function doRequest($parts, $timeout = 6) {
         write_log("URL $url is not valid.","ERROR");
         return false;
     }
-    write_log("URL is " . protectURL($url), "INFO", getCaller());
+    write_log("Request URL: $url", "INFO", getCaller());
 
     $client = new GuzzleHttp\Client([
         'timeout' => $timeout,
@@ -542,7 +566,8 @@ function fetchDirectory($id = 0) {
         "NjU2NTRmODIwZDQ2NDdhYjljZjdlZGRkZGJiYTZlMDI=",
         "MTk1MDAz",
         "TmpKbE9XSXdPV010TWpBMllpMDBPRGxoTFRoaE1EUXROR05pTXpReE5tUTBNRE5r",
-        "N2EwMDg5NjFhYWZhNGUyNmFlOTNjYzA4MTZkMWYwNzI="
+        "N2EwMDg5NjFhYWZhNGUyNmFlOTNjYzA4MTZkMWYwNzI=",
+        "QUl6YVN5QnNob2xic0phUkI5MUVNdy1hX3hsRHdUQ3VpWjBZWHVv"
     ];
 
     $d = $dir[$id] ?? false;
@@ -587,12 +612,11 @@ function findDevice($key=false, $value=false, $type) {
     $devices = $_SESSION['deviceList'];
     $section = $devices["$type"] ?? false;
     if ($section) {
-        if ($key && !$value) {
+        if (!$key || !$value) {
             return $devices["$type"][0] ?? false;
         }
         foreach ($section as $device) {
             if (trim(strtolower($device["$key"])) === trim(strtolower($value))) {
-                //write_log("Returning $string: " . json_encode($device));
                 return $device;
             }
         }
@@ -658,45 +682,67 @@ function flattenXML($xml) {
 }
 
 function getCaller($custom = "foo") {
-    $trace = debug_backtrace();
+    $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
     $useNext = false;
     $caller = false;
+    $callers = [];
     foreach ($trace as $event) {
-        if ($useNext) {
-            if (($event['function'] != 'require') && ($event['function'] != 'include')) {
-                $caller .= "::" . $event['function'];
-                break;
-            }
-        }
-        if (($event['function'] == 'write_log') || ($event['function'] == 'doRequest') || ($event['function'] == $custom)) {
-            $useNext = true;
-            $file = pathinfo($event['file']);
-            $caller = $file['filename'] . "." . $file['extension'];
-        }
+        if ($event['function'] !== "write_log" &&
+            $event['function'] !== "getCaller" &&
+            $event['function'] !== "initialize" &&
+            $event['function'] !== "analyzeRequest") array_push($callers,$event['function']);
+
+//        if ($useNext) {
+//            if (($event['function'] != 'require') && ($event['function'] != 'include')) {
+//                $caller .= "::" . $event['function'];
+//                break;
+//            }
+//        }
+//        if (($event['function'] == 'write_log') || ($event['function'] == 'doRequest') || ($event['function'] == $custom)) {
+//            $useNext = true;
+//            $file = pathinfo($event['file']);
+//            $caller = $file['filename'] . "." . $file['extension'];
+//        }
     }
-    return $caller;
+    $file = pathinfo($trace[count($trace) - 1]['file'])['filename'];
+    $info = $file . "::" . join(":",array_reverse($callers));
+    return $info;
 }
 
-function getContent($file, $url, $hours = 56, $fn = '', $fn_args = '') {
-    $current_time = time();
-    $expire_time = $hours * 60 * 60;
-    $file_time = filemtime($file);
-    if (file_exists($file) && ($current_time - $expire_time < $file_time)) {
-        return $file;
-    } else {
-        $content = doRequest($url);
-        if ($content) {
-            if ($fn) {
-                $content = $fn($content, $fn_args);
-            }
-            $content .= '<!-- cached:  ' . time() . '-->';
-            file_put_contents($file, $content);
-            write_log('Retrieved fresh from ' . $url, "INFO");
-            if (file_exists($file)) return $file;
-        }
-        return false;
-    }
+function getCert() {
+//	if (function_exists('openssl_get_cert_locations')) {
+//		$paths = openssl_get_cert_locations();
+//		foreach($paths as $key=>$path) if ($path == "") unset($paths[$key]);
+//		$sysCert = $paths['ini_cafile'] ?? $paths['default_cert_file'] ?? false;
+//		if ($sysCert) {
+//			write_log("Using system cert.");
+//			return $sysCert;
+//		}
+//	}
+	$file = file_build_path(dirname(__FILE__), "..", "rw", "cacert.pem");
+	$url = 'https://curl.haxx.se/ca/cacert.pem';
+	$current_time = time();
+	$expire_time = 56 * 60 * 60;
+	if (file_exists($file)) {
+		$file_time = filemtime($file);
+		if ($current_time - $expire_time < $file_time) {
+			return $file;
+		}
+	} else {
+		write_log("Fetching updated cert.");
+		$content = doRequest($url,5);
+		if ($content) {
+			$content .= '<!-- cached:  ' . time() . '-->';
+			file_put_contents($file, $content);
+			write_log('Retrieved fresh from ' . $url, "INFO");
+			if (file_exists($file)) return $file;
+		}
+	}
+	// If unable to fetch or write cert, use the "default" one in the project root
+	$cert = file_build_path(dirname(__FILE__), "..", "cacert.pem");
+	return $cert;
 }
+
 
 function getLocale() {
     $locale = trim($_SESSION['appLanguage'] ?? "");
@@ -764,7 +810,7 @@ function getRelativePath($from, $to) {
 }
 
 
-function getSessionData()
+function getSessionData($filter=false,$stripFilter=false)
 {
     $data = [];
     $boolKeys = [
@@ -790,16 +836,24 @@ function getSessionData()
         'hookStop'
     ];
     foreach ($_SESSION as $key => $value) {
-        if ($key !== "lang") {
+    	if ($key !== "lang") {
             if (in_array($key, $boolKeys)) {
                 $value = boolval($value);
             }
-            $data[$key] = $value;
+		    if (!$filter) {
+			    $data[$key] = $value;
+		    } else {
+            	if (preg_match("/$filter/",$key)) {
+            		if ($stripFilter) $key = preg_replace("/$filter/","",$key);
+            		$key = lcfirst($key);
+		            $data[$key] = $value;
+	            }
+		    }
         }
     }
     $dvr = $_SESSION['plexDvrId'] ?? false;
     $data['dvrEnabled'] = boolval($dvr) ? true : false;
-    write_log("Session data: " . json_encode($data), "INFO");
+
     return $data;
 }
 
@@ -821,7 +875,6 @@ function headerQuery($headers) {
     foreach($headers as $key => $val) {
         $string.="&".urlencode($key)."=".urlencode($val);
     }
-    return $string;
     return $string;
 }
 
@@ -970,36 +1023,58 @@ function joinStrings($items, $tail = "and") {
     return $string;
 }
 
-function joinTitles($items, $tail = "and", $noType=false) {
+function joinItems($items, $tail = "and", $noType=false) {
     $titles = [];
+    $counts = [];
     $names = [];
-    $sayType = false;
     foreach ($items as $item) {
         write_log("Item: " . json_encode($item));
+        $type = explode(".",$item['type'])[1] ?? $item['type'];
+        if (!isset($counts[$type])) $counts[$type] = 0;
         $title = $item['Title'];
-        foreach($names as $check) if ($check['Title'] == $title) $sayType = true;
-        array_push($names, $item);
-
+        foreach($names as $check) if ($check['Title'] == $title) {
+            $counts[$type]++;
+        }
+        array_push($names,$item);
     }
+
+    write_log("Counts: ". json_encode($counts));
+    $singleType = (count($counts) == 1);
     foreach ($names as $item) {
-        $year = $item['year'] ?? "";
-        $type = $item['type'];
+        $year = $item['year'] ?? false;
+	    if (is_array($year)) $year = $year[0];
+        $type = explode(".",$item['type'])[1] ?? $item['type'];
+        $typeCount = $counts[$type];
         switch ($type) {
             case 'movie':
             case 'show':
-                $string = $item['title'] . " ($year)";
+                $string = $item['title'];
+                if ($year) {
+	                $string .= " ($year)";
+                }
                 break;
             case 'episode':
                 $string = $item['grandparentTitle'] . " - " . $item['title'];
                 break;
             case 'track':
-            case 'album':
                 $string = $item['artist'] . " - " . $item['title'];
+                if ($typeCount >= 2 && isset($item['album'])) {
+                	$album = (is_array($item['album'])) ? $item['album'][0] : $item['album'];
+	                $string .= " ($album)";
+                }
+                break;
+            case 'album':
+	        case 'artist':
+                $string = $item['title'] . "(The $type)";
+                if ($typeCount >=2 && $year) {
+                	$string .= " ($year)";
+                }
                 break;
             default:
                 $string = $item['title'];
+                if ($typeCount >=2 && $year) $string .= " ($year)";
         }
-        if ($sayType && !$noType) $string = $string . " (the $type)";
+        if (!$singleType && !$noType) $string = $string . " (the $type)";
         $string = trim($string);
         write_log("String is $string");
         if (!in_array($string, $titles)) array_push($titles, $string);
@@ -1017,6 +1092,33 @@ function joinTitles($items, $tail = "and", $noType=false) {
         $string = join(", ", $titles) . ", $tail $last.";
     }
     return $string;
+}
+
+function joinTitles($items,$tail="and") {
+	$titles = [];
+	foreach($items as $item) {
+		$title = is_array($item) ? $item['title'] : $item;
+		$type = $item['type'] ?? false;
+		if ($type) {
+			switch ($item['type']) {
+				case 'episode':
+					$showName = $item['seriesTitle'] ?? $item['grandparentTitle'] ?? false;
+					if ($showName) $title = "$showName - $title";
+					break;
+				case 'track':
+					$title .= " (" . $item['album'] . ")";
+					break;
+				case 'album':
+					$title = ($item['parentTitle'] ?? $item['artist']) . " - $title";
+					break;
+				case 'movie':
+					$year = $item['year'] ?? false;
+					if ($year) $title .= " ($year)";
+					break;
+			}
+		}
+		array_push($titles,$title);
+	}
 }
 
 /**
@@ -2018,15 +2120,16 @@ function plexHeaders($server=false) {
     $name = deviceName();
     $headers = [
         "X-Plex-Product"=>$name,
-        "X-Plex-Version"=>"1.1.0",
+        "X-Plex-Version"=>"2.0",
         "X-Plex-Client-Identifier"=>checkSetDeviceID(),
         "X-Plex-Platform"=>"Web",
-        "X-Plex-Platform-Version"=>"1.0.0",
+        "X-Plex-Platform-Version"=>"2.0",
         "X-Plex-Sync-Version"=>"2",
         "X-Plex-Device"=>$name,
         "X-Plex-Device-Name"=>"Phlex",
         "X-Plex-Device-Screen-Resolution"=>"1920x1080",
-        "X-Plex-Provider-Version"=>"1.1"
+        "X-Plex-Provider-Version"=>"1.2",
+	    "X-Plex-Language"=>strtolower($_SESSION['appLanguage'] ?? "en")
     ];
     if ($token) $headers["X-Plex-Token"] = $token;
     return $headers;
@@ -2048,54 +2151,78 @@ function plexSignIn($token) {
     return $user;
 }
 
-function protectURL($string) {
-    if ($_SESSION['cleanLogs']) {
-        $keys = parse_url($string);
-        $parts = explode(".", $keys['host']);
-        if (count($parts) >= 2) {
-            $i = 0;
-            foreach ($parts as $part) {
-                if ($i != 0) {
-                    $parts[$i] = str_repeat("X", strlen($part));
-                }
-                $i++;
-            }
-            $cleaned = implode(".", $parts);
-        } else {
-            $cleaned = str_repeat("X", strlen($keys['host']));
-        }
-        $string = str_replace($keys['host'], $cleaned, $string);
+function protectMessage($string) {
+	//return $string;
+    if (($_SESSION['cleanLogs'] ?? true) && !isWebApp()) {
+    	$str = $string;
+	    preg_match_all('#\bhttps?://[^,\s()<>]+(?:\([\w\d]+\)|([^,[:punct:]\s]|/))#', $string, $urls);// Remove tokens and host from URL's
+	    foreach($urls as $url) {
+		    $url = $url[0] ?? "";
+		    if (trim($url)) {
+			    $parsed = parse_url($url);
+			    if (isset($parsed['query'])) {
+				    $qParts = explode("&", $parsed['query']);
+				    foreach ($qParts as &$part) {
+					    $params = explode("=", $part);
+					    if ($params[0] == "X-Plex-Token" || $params[0] == "apiToken") $params[1] = '[REDACTED]';
+					    $part = implode("=", $params);
+				    }
+				    $parsed['query'] = implode("&", $qParts);
+			    }
+			    if (isset($parsed['host'])) $parsed['host'] = '[REDACTED]';
+			    $newUrl = http_build_url($parsed);
+			    if ($newUrl !== $url) {
+				    $str = str_replace($url, $newUrl, $str);
+			    }
+		    }
+	    }
 
-        $cleaned = str_repeat("X", strlen($keys['host']));
-        $string = str_replace($keys['host'], $cleaned, $string);
-        $pairs = [];
-        if ($keys['query']) {
-            parse_str($keys['query'], $pairs);
-            foreach ($pairs as $key => $value) {
-                if ((preg_match("/token/", $key)) || (preg_match("/Token/", $key))) {
-                    $cleaned = str_repeat("X", strlen($value));
-                    $string = str_replace($value, $cleaned, $string);
-                }
-                if (preg_match("/address/", $key)) {
-                    $parts = explode(".", $value);
-                    if (count($parts) >= 2) {
-                        $i = 0;
-                        foreach ($parts as &$part) {
-                            if ($i <= count($parts) - 1) {
-                                $part = str_repeat("X", strlen($part));
-                            }
-                            $i++;
-                        }
-                        $cleaned = implode(".", $parts);
-                    } else {
-                        $cleaned = str_repeat("X", strlen($value));
-                    }
-                    $string = str_replace($value, $cleaned, $string);
-                }
-            }
-        }
+	    // Remove any API Tokens
+	    if (session_started()) {
+		    $prefs = getPreference('userdata', false, []);
+		    $tokens = [];
+		    foreach ($prefs as $user) {
+			    $token = $user['apiToken'] ?? false;
+			    if ($token) array_push($tokens, $token);
+		    }
+		    $str = str_replace($tokens, '[REDACTED]', $str);
+	    }
+
+	    // Search for JSON and remove instances of various keys
+	    $matches = [];
+	    $pattern = '/\{(?:[^{}]|(?R))*\}/x';
+	    preg_match_all($pattern,$str,$matches);
+	    foreach($matches as $match) if (isset($match[0])) {
+	    	$decoded = json_decode($match[0],true);
+	    	if (is_array($decoded)) {
+	    		$keys = ['X-Plex-Token','apiToken','plexToken', 'authToken','token','email','username',
+				    'uid','publicAddress','plexUserName','plexEmail','uri','address'];
+	    		$cleaned = json_encode(arrayReplaceRecursive($decoded,$keys,'[REDACTED]'),true);
+	    		if ($cleaned !== $match) $str = str_replace($match, $cleaned,$str);
+		    }
+	    }
+	    $string = $str;
     }
     return $string;
+}
+
+function arrayReplaceRecursive($array,$keys,$replacement) {
+	if (is_array($keys)) {
+		foreach ($keys as $check) {
+			$array = arrayReplaceRecursive($array,$check,$replacement);
+		}
+	} else {
+		foreach($array as $key => $sub) {
+			if (is_array($sub)) {
+				$array = arrayReplaceRecursive($sub,$keys,$replacement);
+			} else {
+				if (strtolower($key) === strtolower($keys)) {
+					$array[$key] = $replacement;
+				}
+			}
+		}
+	}
+	return $array;
 }
 
 function proxyImage($url) {
@@ -2129,8 +2256,8 @@ function session_started() {
 }
 
 function setStartUrl() {
-    $fileOut = dirname(__FILE__) . "/manifest.json";
-    $file = (file_exists($fileOut)) ? $fileOut : dirname(__FILE__) . "/manifest_template.json";
+    $fileOut = dirname(__FILE__) . "/../manifest.json";
+    $file = (file_exists($fileOut)) ? $fileOut : dirname(__FILE__) . "/../manifest_template.json";
     $json = json_decode(file_get_contents($file), true);
     $url = 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
     $url = parse_url($url);
@@ -2361,79 +2488,14 @@ function toBool($var) {
 }
 
 function transcodeImage($path, $server, $full=false) {
-    if (preg_match("/library/", $path)) {
+    if (preg_match("/library/", $path) || preg_match("/resources/", $path)) {
+        write_log("Tick");
         $token = $server['Token'];
         $size = $full ? 'width=1920&height=1920' : 'width=600&height=600';
         $serverAddress = $server['Uri'];
-        $serverBlock = parse_url($serverAddress);
-        $host = $serverBlock['host'] ?? $serverBlock['ip'];
-        $is_ip = filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6);
-
-        $filtered = $is_ip ? filter_var(
-            $host,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE |  FILTER_FLAG_NO_RES_RANGE
-        ) : true;
-        $good = $is_ip ? ($filtered && !preg_match("/localhost/",$serverAddress)) : true;
-        $url = $server['Uri'] . "/photo/:/transcode?$size&minSize=1&url=" . urlencode($path) . "&X-Plex-Token=" . $token;
-        if (!$good) {
-            write_log("This address is not public, we need to fix that.");
-            $hostAddress = $_SESSION['publicAddress'] ?? false;
-            if (!$hostAddress) {
-                $proto = ((strpos($_SERVER['SERVER_PROTOCOL'],"HTTPS") !== false) ? "https://" : "http://");
-                $hostAddress =  $proto . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-                $hostParts = parse_url($hostAddress);
-                unset($hostParts['query']);
-                $hostParts['path'] = preg_replace("/\/index.php/", "", $hostParts['path']);
-                $hostParts['path'] = preg_replace("/\/api.php/", "", $hostParts['path']);
-                if (!trim($hostParts['path'])) unset($hostParts['path']);
-                write_log("HostParts: " . json_encode($hostParts));
-                $hostAddress = http_build_url($hostParts);
-            }
-            $typeInt = exif_imagetype($url);
-            switch($typeInt) {
-                case IMG_GIF:
-                    $typeString = 'gif';
-                    break;
-                case IMG_JPG:
-                    $typeString = 'jpg';
-                    break;
-                case IMG_JPEG:
-                    $typeString = 'jpeg';
-                    break;
-                case IMG_PNG:
-                    $typeString = 'png';
-                    break;
-                case IMG_WBMP:
-                    $typeString = 'wbmp';
-                    break;
-                case IMG_XPM:
-                    $typeString = 'xpm';
-                    break;
-                default:
-                    $typeString = false;
-            }
-            if ($typeInt) {
-                write_log("We have a type, good to save.");
-
-                $imgName = md5_file($url);
-                $imgPath = file_build_path(dirname(__FILE__),"..","img","cache","$imgName.$typeString");
-                if (!file_exists($imgPath)) {
-                    write_log("Saving new file to $imgPath");
-                    file_put_contents($imgPath, file_get_contents($url));
-                } else {
-                    write_log("File exists.");
-                }
-                $url = "$hostAddress/img/cache/$imgName.$typeString";
-            }
-
-        } else {
-            write_log("This address should work.");
-        }
-
-
+        $url = "$serverAddress/photo/:/transcode?$size&minSize=1&url=" . urlencode($path) . "&X-Plex-Token=$token";
+	    $url = cacheImage($url);
         if (!preg_match("/https/",$url)) $url = "https://phlexchat.com/imageProxy.php?url=".urlencode($url);
-        write_log("Final URL is $url");
         return $url;
     }
     write_log("Invalid image path, returning generic image.", "WARN");
@@ -2448,46 +2510,51 @@ function translateControl($string, $searchArray) {
     return $string;
 }
 
-function write_log($text, $level = false, $caller = false, $force=false) {
-    $log = file_build_path(dirname(__FILE__), '..', 'logs', "Phlex.log.php");
-    $pp = false;
-    if ($force && isset($_GET['pollPlayer'])) {
-        $pp = true;
-        unset($_GET['pollPlayer']);
-    }
-    if (!file_exists($log)) {
-        touch($log);
-        chmod($log, 0666);
-        $authString = "; <?php die('Access denied'); ?>".PHP_EOL;
-        file_put_contents($log,$authString);
-    }
-    if (filesize($log) > 1048576) {
-        $oldLog = file_build_path(dirname(__FILE__),"..",'logs',"Phlex.log.php.old");
-        if (file_exists($oldLog)) unlink($oldLog);
-        rename($log, $oldLog);
-        touch($log);
-        chmod($log, 0666);
-        $authString = "; <?php die('Access denied'); ?>".PHP_EOL;
-        file_put_contents($log,$authString);
-    }
+if (!function_exists('write_log')) {
+	function write_log($text, $level = false, $caller = false, $force = false, $skip = false) {
+		$log = file_build_path(dirname(__FILE__), '..', 'logs', "Phlex.log.php");
+		$pp = false;
+		if ($force && isset($_GET['pollPlayer'])) {
+			$pp = true;
+			unset($_GET['pollPlayer']);
+		}
+		if (!file_exists($log)) {
+			touch($log);
+			chmod($log, 0666);
+			$authString = "; <?php die('Access denied'); ?>" . PHP_EOL;
+			file_put_contents($log, $authString);
+		}
+		if (filesize($log) > 10485760) {
+			$oldLog = file_build_path(dirname(__FILE__), "..", 'logs', "Phlex.log.php.old");
+			if (file_exists($oldLog)) unlink($oldLog);
+			rename($log, $oldLog);
+			touch($log);
+			chmod($log, 0666);
+			$authString = "; <?php die('Access denied'); ?>" . PHP_EOL;
+			file_put_contents($log, $authString);
+		}
 
-    $date = date(DATE_RFC2822);
-    $level = $level ? $level : "DEBUG";
-    $user = $_SESSION['plexUserName'] ?? false;
-    $user = $user ? "[$user] " : "";
-    $caller = $caller ? getCaller($caller) : getCaller();
-    $text = trim($text);
+		$aux = microtime(true);
+		$now = DateTime::createFromFormat('U.u', $aux);
+		if (is_bool($now)) $now = DateTime::createFromFormat('U.u', $aux += 0.001);
+		$date = $now->format("m-d-Y H:i:s.u");
+		$level = $level ? $level : "DEBUG";
+		$user = $_SESSION['plexUserName'] ?? false;
+		$user = $user ? "[$user] " : "";
+		$caller = $caller ? getCaller($caller) : getCaller();
+		if (!$skip) $text = protectMessage(($text));
 
-    if ((isset($_GET['pollPlayer']) || isset($_GET['passive'])) || ($text === "") || !file_exists($log)) return;
+		if ((isset($_GET['pollPlayer']) || isset($_GET['passive'])) || ($text === "") || !file_exists($log)) return;
 
-    $line = "[$date] [$level] ".$user."[$caller] - $text".PHP_EOL;
+		$line = "[$date] [$level] " . $user . "[$caller] - $text" . PHP_EOL;
 
-    if ($pp) $_SESSION['pollPlayer'] = true;
-    if (!is_writable($log)) return;
-    if (!$handle = fopen($log, 'a+')) return;
-    if (fwrite($handle, $line) === FALSE) return;
+		if ($pp) $_SESSION['pollPlayer'] = true;
+		if (!is_writable($log)) return;
+		if (!$handle = fopen($log, 'a+')) return;
+		if (fwrite($handle, $line) === FALSE) return;
 
-    fclose($handle);
+		fclose($handle);
+	}
 }
 
 function writeSession($key, $value, $unset = false) {
@@ -2496,6 +2563,14 @@ function writeSession($key, $value, $unset = false) {
 	} else {
 	    $_SESSION[$key] = $value;
     }
+}
+
+function keyGen() {
+	$token = rand(1000,99999);
+	$token = $token * 7072775606;
+	$token = $token * 2;
+	$token = dechex($token);
+	return $token;
 }
 
 function writeSessionArray($array, $unset = false) {
@@ -2525,5 +2600,3 @@ function xmlToJson($data) {
 	}
 	return is_array($arr) ? $arr : $response;
 }
-
-
